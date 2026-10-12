@@ -1,3 +1,4 @@
+
 import os
 
 from langchain_core.documents import Document
@@ -12,8 +13,7 @@ def create_chunks(repo_url: str):
     documents = load_repository(repo_url)
 
     repo_name = (
-        repo_url
-        .strip()
+        repo_url.strip()
         .rstrip("/")
         .split("/")[-1]
         .replace(".git", "")
@@ -21,15 +21,14 @@ def create_chunks(repo_url: str):
 
     chunks = []
 
+    repo_marker = os.path.join(
+        "data",
+        "repositories",
+        repo_name,
+    )
+
     for document in documents:
-
         source = document.metadata.get("source", "")
-
-        repo_marker = os.path.join(
-            "data",
-            "repositories",
-            repo_name,
-        )
 
         if source.startswith(repo_marker):
             relative_path = os.path.relpath(
@@ -39,12 +38,14 @@ def create_chunks(repo_url: str):
         else:
             relative_path = source
 
+        code = document.page_content
+
         structure = extract_code_structure(source)
+        file_chunks = []
 
-        # Create chunks for functions
+        # Function chunks
         for function in structure["functions"]:
-
-            chunks.append(
+            file_chunks.append(
                 Document(
                     page_content=function["code"],
                     metadata={
@@ -59,10 +60,9 @@ def create_chunks(repo_url: str):
                 )
             )
 
-        # Create chunks for classes
+        # Class chunks
         for class_info in structure["classes"]:
-
-            chunks.append(
+            file_chunks.append(
                 Document(
                     page_content=class_info["code"],
                     metadata={
@@ -77,9 +77,29 @@ def create_chunks(repo_url: str):
                 )
             )
 
+        # Fallback for files without functions or classes
+        if not file_chunks and code.strip():
+            file_chunks.append(
+                Document(
+                    page_content=code,
+                    metadata={
+                        "repository": repo_name,
+                        "file": relative_path,
+                        "language": "python",
+                        "type": "module",
+                        "name": os.path.basename(relative_path),
+                        "start_line": 1,
+                        "end_line": len(code.splitlines()),
+                    },
+                )
+            )
+
+        chunks.extend(file_chunks)
+
     if not chunks:
         raise ValueError(
-            "No code-aware chunks were created."
+            "No code chunks were created. "
+            "Check whether the repository contains readable Python code."
         )
 
     return chunks
